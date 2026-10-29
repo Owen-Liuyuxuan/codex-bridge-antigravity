@@ -121,14 +121,16 @@ export function expandPreviousResponse(payload, responseStates, { native = false
     : undefined;
   if (!previousId) return payload;
 
-  const isPreviousAgy = conversations?.has(previousId);
-  // If target is native and previous was also native -> OpenAI upstream already has the session state
-  if (native && !isPreviousAgy) return payload;
-  // If target is antigravity and previous was also antigravity -> AGY CLI tracks session via conversationId
-  if (!native && isPreviousAgy) return payload;
-
   const state = responseStates.get(previousId);
-  if (!state) return payload;
+  const isPreviousAgy = conversations?.has(previousId) === true || state?.origin === "agy";
+  const isPreviousNative = state?.origin === "native";
+  // A native upstream id is safe to forward. A missing cache entry is treated the same way:
+  // this process did not mint that id. A local synthetic id must never be forwarded.
+  if (native && (isPreviousNative || (state?.origin === undefined && !isPreviousAgy))) return payload;
+  // AGY still holds this conversation, so the client only sent the new turn.
+  if (!native && isPreviousAgy && state?.origin !== "synthetic") return payload;
+
+  if (!state?.items) return payload;
   const expanded = {
     ...payload,
     input: [...state.items, ...inputItems(payload.input)],
@@ -137,12 +139,19 @@ export function expandPreviousResponse(payload, responseStates, { native = false
   return expanded;
 }
 
-function rememberResponse(responseStates, payload, response) {
+export function rememberResponse(responseStates, payload, response, origin) {
   if (!response || typeof response !== "object" || typeof response.id !== "string" || !Array.isArray(response.output)) return;
+  const previousId = typeof payload?.previous_response_id === "string" ? payload.previous_response_id : undefined;
+  const priorItems = previousId ? responseStates.get(previousId)?.items ?? [] : [];
   responseStates.set(response.id, {
-    items: [...inputItems(payload?.input), ...structuredClone(response.output)],
+    origin,
+    items: [...priorItems, ...inputItems(payload?.input), ...structuredClone(response.output)],
   });
   while (responseStates.size > 1_000) responseStates.delete(responseStates.keys().next().value);
+}
+
+export function isTerminalQuotaError(error) {
+  return error?.code === "AGY_RESULT" && /quota|rate limit|resource_exhausted|resets in/i.test(String(error.message || ""));
 }
 
 function modelCatalogRows(models) {
@@ -264,7 +273,7 @@ async function runAgyResponse({ config, models, payload, conversations, response
   }, sequence);
 
   let sentDelta = false;
-  const finish = (finalText, result) => {
+  const finish = (finalText, result, origin) => {
     if (!sentDelta && finalText) {
       emit("response.output_text.delta", {
         item_id: itemId,
@@ -289,7 +298,7 @@ async function runAgyResponse({ config, models, payload, conversations, response
     completed.output[0].id = itemId;
     emit("response.output_item.done", { output_index: 0, item: completed.output[0] }, sequence);
     emit("response.completed", { response: completed }, sequence);
-    rememberResponse(responseStates, effectivePayload, completed);
+    rememberResponse(responseStates, effectivePayload, completed, origin);
     return { responseId, response: completed, result };
   };
 
@@ -319,15 +328,17 @@ async function runAgyResponse({ config, models, payload, conversations, response
       },
     });
   } catch (error) {
-    // Codex treats response.failed after response.created as a dropped stream and
-    // retries. A quota or other pre-output agy failure must complete the turn so
-    // the Desktop client shows the provider message instead of reconnecting.
-    if (sentDelta) throw error;
-    const message = error instanceof Error ? error.message : String(error);
-    return finish(message);
+    // Only a quota result is turned into assistant text. Codex otherwise retries
+    // response.failed after response.created. Auth, abort, timeout, and process
+    // failures still surface as failures.
+    if (sentDelta || !isTerminalQuotaError(error)) throw error;
+    return finish(error.message, undefined, "synthetic");
   }
-  if (result.conversation_id) conversations.set(responseId, result.conversation_id);
-  return finish(result.response || "", result);
+  if (result.conversation_id) {
+    conversations.set(responseId, result.conversation_id);
+    return finish(result.response || "", result, "agy");
+  }
+  return finish(result.response || "", result, "synthetic");
 }
 
 async function runAgyCompaction({ config, models, payload, conversations, responseStates, signal }) {
@@ -369,7 +380,7 @@ async function runAgyCompaction({ config, models, payload, conversations, respon
       output_text: "",
       usage: usage(result),
   };
-  rememberResponse(responseStates, effectivePayload, response);
+  rememberResponse(responseStates, effectivePayload, response, result.conversation_id ? "agy" : "synthetic");
   return { response };
 }
 
@@ -636,7 +647,7 @@ function acceptWebSocket(config, models, conversations, responseStates, req, soc
     }
     if (event?.type === "response.completed" && event.response) {
       const payload = typeof responseId === "string" ? nativePayloads.get(responseId) : undefined;
-      rememberResponse(responseStates, payload || nativePayloadQueue.shift(), event.response);
+      rememberResponse(responseStates, payload || nativePayloadQueue.shift(), event.response, "native");
       if (typeof responseId === "string") nativePayloads.delete(responseId);
     }
   };
@@ -762,13 +773,13 @@ async function proxyNative(config, req, res, endpoint, body, responseStates) {
       const eventStream = (upstream.headers.get("content-type") || "").toLowerCase().includes("text/event-stream");
       if (eventStream) {
         await pipeNativeResponse(res, upstream, event => {
-          if (event?.type === "response.completed" && event.response) rememberResponse(responseStates, body, event.response);
+          if (event?.type === "response.completed" && event.response) rememberResponse(responseStates, body, event.response, "native");
         });
         return;
       }
       try {
         const response = await upstream.clone().json();
-        rememberResponse(responseStates, body, response);
+        rememberResponse(responseStates, body, response, "native");
       } catch {
         // Let the original upstream body reach Codex; only continuation caching is optional.
       }

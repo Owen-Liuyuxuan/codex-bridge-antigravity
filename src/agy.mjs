@@ -21,9 +21,23 @@ export function parseAgyLine(line) {
   }
 }
 
+const activeChildren = new Set();
+
 function kill(child) {
   if (!child || child.killed) return;
   try { child.kill("SIGTERM"); } catch { /* already gone */ }
+}
+
+function trackChild(child) {
+  activeChildren.add(child);
+  const drop = () => activeChildren.delete(child);
+  child.once("exit", drop);
+  child.once("error", drop);
+}
+
+/** Stop agy processes still running when the bridge itself is shutting down. */
+export function stopActiveAgyProcesses() {
+  for (const child of activeChildren) kill(child);
 }
 
 export function runAgyTurn({
@@ -61,6 +75,7 @@ export function runAgyTurn({
         stdio: ["pipe", "pipe", "pipe"],
         env: process.env,
       });
+      trackChild(child);
     } catch (error) {
       reject(new AgyError(`cannot start ${agyPath}: ${error.message}`, "AGY_START"));
       return;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { agyVersion } from "./agy.mjs";
+import { agyVersion, stopActiveAgyProcesses } from "./agy.mjs";
 import { appHome, catalogPath, codexConfigPath, integrationStatePath, loadConfig, resolveAgyExecutable, resolveCwd, saveConfig } from "./config.mjs";
 import { buildCodexCatalog, discoverAgyModels } from "./models.mjs";
 import { createBridgeServer, listenBridge } from "./server.mjs";
@@ -270,6 +270,7 @@ async function serve(options) {
   console.log(`codex-bridge-antigravity listening on http://${config.host}:${config.port}/v1`);
   console.log(`AGY: ${config.agyPath} | cwd: ${config.cwd} | mode: ${config.mode}`);
   const shutdown = () => {
+    stopActiveAgyProcesses();
     server.close(() => process.exit(0));
     // Open WebSocket clients otherwise keep server.close() from finishing, and
     // systemd then waits out TimeoutStopSec on every restart.

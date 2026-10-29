@@ -14,7 +14,7 @@ import {
   scrubBridgeArtifactsForNative,
 } from "../src/prompt.mjs";
 import { buildCodexCatalog, isAllowedAgyModel, parseAgyModels } from "../src/models.mjs";
-import { createBridgeServer, effortForAgy, expandPreviousResponse, listenBridge } from "../src/server.mjs";
+import { createBridgeServer, effortForAgy, expandPreviousResponse, isTerminalQuotaError, listenBridge, rememberResponse } from "../src/server.mjs";
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -237,6 +237,53 @@ test("expandPreviousResponse preserves previous_response_id for native-to-native
   assert.equal(expandedSwitched.input[0].content[0].text, "agy answer");
 });
 
+test("a synthetic quota turn keeps ancestor context and is not a native id", () => {
+  const conversations = new Map();
+  const responseStates = new Map();
+  const reply = text => ({
+    type: "message",
+    role: "assistant",
+    content: [{ type: "output_text", text }],
+  });
+  rememberResponse(responseStates, { input: "SECRET_1" }, { id: "resp_1", output: [reply("reply-1")] }, "agy");
+  conversations.set("resp_1", "conv-123");
+
+  const turn2 = {
+    model: "antigravity/gemini-4-argon-medium",
+    previous_response_id: "resp_1",
+    input: "FAIL_2",
+  };
+  const expanded2 = expandPreviousResponse(turn2, responseStates, { conversations });
+  assert.equal(expanded2.previous_response_id, "resp_1");
+  rememberResponse(responseStates, expanded2, {
+    id: "resp_2",
+    output: [reply("Individual quota reached")],
+  }, "synthetic");
+
+  const expanded3 = expandPreviousResponse({
+    model: "antigravity/gemini-4-argon-medium",
+    previous_response_id: "resp_2",
+    input: "CONT_3",
+  }, responseStates, { conversations });
+  assert.equal(expanded3.previous_response_id, undefined);
+  const prompt = buildAgyPrompt(expanded3);
+  assert.match(prompt, /SECRET_1/);
+  assert.match(prompt, /FAIL_2/);
+  assert.match(prompt, /CONT_3/);
+
+  const switched = expandPreviousResponse({
+    model: "gpt-6.1-sol",
+    previous_response_id: "resp_2",
+    input: "CONT_3",
+  }, responseStates, { native: true, conversations });
+  assert.equal(switched.previous_response_id, undefined);
+  assert.match(JSON.stringify(switched.input), /SECRET_1/);
+
+  assert.equal(isTerminalQuotaError({ code: "AGY_RESULT", message: "Individual quota reached. Resets in 20m." }), true);
+  assert.equal(isTerminalQuotaError({ code: "ABORT_ERR", message: "Request was cancelled" }), false);
+  assert.equal(isTerminalQuotaError({ code: "AGY_RESULT", message: "disk on fire" }), false);
+});
+
 test("pre-output agy failure is returned as a completed message", async () => {
   const agyDir = mkdtempSync(join(tmpdir(), "codex-bridge-agy-quota-"));
   const agyPath = join(agyDir, "agy");
@@ -277,6 +324,43 @@ process.stdin.once("data", () => {
     assert.equal(response.status, 200);
     assert.equal(body.status, "completed");
     assert.match(body.output_text, /Individual quota reached/);
+  } finally {
+    await new Promise(resolve => bridge.close(resolve));
+    rmSync(agyDir, { recursive: true, force: true });
+  }
+});
+
+test("a non-quota agy failure stays a failed response", async () => {
+  const agyDir = mkdtempSync(join(tmpdir(), "codex-bridge-agy-fail-"));
+  const agyPath = join(agyDir, "agy");
+  writeFileSync(agyPath, `#!/usr/bin/env node
+process.stdin.once("data", () => {
+  const line = { event: "result", result: { status: "ERROR", error: "disk on fire" } };
+  process.stdout.write(JSON.stringify(line) + "\\n", () => process.exit(0));
+});
+`);
+  chmodSync(agyPath, 0o700);
+  const config = {
+    host: "127.0.0.1",
+    port: 0,
+    agyPath,
+    cwd: process.cwd(),
+    mode: "plan",
+    requestTimeoutSec: 5,
+    nativeBaseUrl: "http://127.0.0.1:9/v1",
+  };
+  const bridge = createBridgeServer(config, [{ id: "gemini-4-argon-medium", displayName: "Gemini 4 Argon (Medium)" }]);
+  await listenBridge(bridge, config);
+  try {
+    const response = await fetch(`http://127.0.0.1:${bridge.address().port}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "antigravity/gemini-4-argon-medium", input: "hello" }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(body.error.code, "AGY_RESULT");
+    assert.match(body.error.message, /disk on fire/);
   } finally {
     await new Promise(resolve => bridge.close(resolve));
     rmSync(agyDir, { recursive: true, force: true });
