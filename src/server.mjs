@@ -169,6 +169,16 @@ function effortFromId(id) {
   return "high";
 }
 
+/**
+ * `agy` rejects `--model gemini-4-argon-low --effort medium`. Catalog ids already
+ * encode effort, and Codex still sends the global `model_reasoning_effort`.
+ * When the id has a suffix, omit `--effort` and let the id win.
+ */
+export function effortForAgy(modelId, requested) {
+  if (typeof modelId === "string" && /(?:^|-)(?:low|medium|high)$/.test(modelId)) return undefined;
+  return requested;
+}
+
 function imagePreflightPrompt(prompt) {
   const references = String(prompt).split(/\r?\n/)
     .filter(line => /^\[Image (?:attachment|URL):/.test(line));
@@ -260,7 +270,7 @@ async function runAgyResponse({ config, models, payload, conversations, response
     payload: effectivePayload,
     prompt,
     mode: config.mode,
-    effort: effectivePayload.reasoning?.effort,
+    effort: effortForAgy(selected.agy, effectivePayload.reasoning?.effort),
     conversationId: previous,
     signal,
     onEvent: event => {
@@ -324,7 +334,7 @@ async function runAgyCompaction({ config, models, payload, conversations, respon
     payload: effectivePayload,
     prompt,
     mode: "plan",
-    effort: effectivePayload.reasoning?.effort,
+    effort: effortForAgy(selected.agy, effectivePayload.reasoning?.effort),
     conversationId: previous,
     signal,
   });

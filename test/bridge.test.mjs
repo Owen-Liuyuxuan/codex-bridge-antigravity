@@ -14,7 +14,7 @@ import {
   scrubBridgeArtifactsForNative,
 } from "../src/prompt.mjs";
 import { buildCodexCatalog, isAllowedAgyModel, parseAgyModels } from "../src/models.mjs";
-import { createBridgeServer, expandPreviousResponse, listenBridge } from "../src/server.mjs";
+import { createBridgeServer, effortForAgy, expandPreviousResponse, listenBridge } from "../src/server.mjs";
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -92,6 +92,13 @@ test("parses AGY stream-json events", () => {
 test("parses the live agy models table shape", () => {
   const models = parseAgyModels("gemini-3.8-flash-low    Gemini 3.8 Flash (Low)\nclaude-sonnet-4-6  Claude Sonnet 4.6 (Thinking)");
   assert.deepEqual(models.map(model => model.id), ["gemini-3.8-flash-low", "claude-sonnet-4-6"]);
+});
+
+test("model id effort wins over the global Codex reasoning effort", () => {
+  assert.equal(effortForAgy("gemini-4-argon-low", "medium"), undefined);
+  assert.equal(effortForAgy("gemini-4-argon-medium", "high"), undefined);
+  assert.equal(effortForAgy("gemini-3.8-flash-high", "low"), undefined);
+  assert.equal(effortForAgy("gemini-4-argon", "medium"), "medium");
 });
 
 test("filters models to Gemini 3.8 Flash and newer, plus Gemini 4 Argon", () => {

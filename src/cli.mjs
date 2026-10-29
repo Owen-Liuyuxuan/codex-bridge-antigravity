@@ -269,7 +269,12 @@ async function serve(options) {
   await listenBridge(server, config);
   console.log(`codex-bridge-antigravity listening on http://${config.host}:${config.port}/v1`);
   console.log(`AGY: ${config.agyPath} | cwd: ${config.cwd} | mode: ${config.mode}`);
-  const shutdown = () => server.close(() => process.exit(0));
+  const shutdown = () => {
+    server.close(() => process.exit(0));
+    // Open WebSocket clients otherwise keep server.close() from finishing, and
+    // systemd then waits out TimeoutStopSec on every restart.
+    setTimeout(() => process.exit(0), 2000).unref();
+  };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 }
