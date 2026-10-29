@@ -234,6 +234,7 @@ async function doctor(options) {
   }
   console.log(`✓ AGY CLI: ${version}`);
   console.log(`✓ AGY login/models response: ${models.length} models`);
+  console.log(`✓ AGY models: ${models.map(model => model.id).join(", ")}`);
   console.log(`✓ Working directory: ${config.cwd}`);
   console.log(`✓ Native GPT route: ${config.nativeBaseUrl}`);
   console.log("✓ Model router: native models passthrough; antigravity/* via WebSocket → AGY");

@@ -43,7 +43,7 @@ OpenAI Codex の WebSocket および HTTP エンドポイント設定は、個�
 ## 主な特徴
 
 - **完全共存**：ネイティブ GPT モデルは公式バックエンドへ直結され、Antigravity 側に送信されることはありません。
-- **動的モデルカタログ同期**：`agy models` から利用可能なモデル（Gemini 3.8 Flash、Gemini 3.8 Pro など）をリアルタイムで取得・統合します。
+- **動的モデルカタログ同期**：`agy models` が返す Gemini を取り込みます。この fork は Gemini 3.8 Flash 以降と Gemini 4 Argon（`gemini-4-argon-low` / `medium` / `high`）を残し、Claude と GPT-OSS は除外します。
 - **Codex モデル切り替えエラーの解消**：モデル定義の `use_responses_lite = false` を適用し、Codex クライアントでのモデル切り替え時の検証エラーを防止します。
 - **会話履歴の自動要約（Compaction）対応**：OpenAI Compact API 仕様に準拠した `/v1/responses/compact` エンドポイントを実装し、コンテキスト上限に近づいた際の自動要約がスムーズに機能します。
 - **ワンコマンドでの設定と復元**：`setup` により `~/.codex/config.toml` を自動バックアップした上で設定し、`disconnect` でいつでも元の設定へ安全に戻せます。

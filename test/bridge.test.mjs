@@ -94,19 +94,25 @@ test("parses the live agy models table shape", () => {
   assert.deepEqual(models.map(model => model.id), ["gemini-3.8-flash-low", "claude-sonnet-4-6"]);
 });
 
-test("filters models to Gemini 3.8 Flash and newer", () => {
+test("filters models to Gemini 3.8 Flash and newer, plus Gemini 4 Argon", () => {
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-high"), true);
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-medium"), true);
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-low"), true);
   assert.equal(isAllowedAgyModel("gemini-3.9-flash-high"), true);
   assert.equal(isAllowedAgyModel("gemini-4.0-flash"), true);
+  assert.equal(isAllowedAgyModel("gemini-4-argon-high"), true);
+  assert.equal(isAllowedAgyModel("gemini-4-argon-medium"), true);
+  assert.equal(isAllowedAgyModel("gemini-4-argon-low"), true);
   assert.equal(isAllowedAgyModel("antigravity/gemini-3.8-flash-high"), true);
+  assert.equal(isAllowedAgyModel("antigravity/gemini-4-argon-medium"), true);
   assert.equal(isAllowedAgyModel({ id: "antigravity/gemini-3.8-flash-low" }), true);
 
   assert.equal(isAllowedAgyModel("gemini-3.7-flash-high"), false);
   assert.equal(isAllowedAgyModel("gemini-3.6-flash-low"), false);
   assert.equal(isAllowedAgyModel("gemini-3.1-pro-high"), false);
+  assert.equal(isAllowedAgyModel("gemini-3-argon-high"), false);
   assert.equal(isAllowedAgyModel("claude-sonnet-4-6"), false);
+  assert.equal(isAllowedAgyModel("claude-opus-5-5-high"), false);
   assert.equal(isAllowedAgyModel("gpt-oss-120b-medium"), false);
 });
 

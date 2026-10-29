@@ -43,7 +43,7 @@ OpenAI Codex 的 WebSocket 與 HTTP 端點設定屬於 **Provider 層級**（供
 ## 主要特點
 
 - **零干擾雙向共存**：原生 GPT 模型依舊直連官方後端，完全不會被傳入 Antigravity。
-- **動態模型目錄同步**：自動從 `agy models` 即時讀取可用模型（如 Gemini 3.8 Flash、Gemini 3.8 Pro）。
+- **動態模型目錄同步**：同步 `agy models` 回報的 Gemini 模型。這個 fork 保留 Gemini 3.8 Flash 及更新版本，以及 Gemini 4 Argon（`gemini-4-argon-low`、`medium`、`high`）。Claude 與 GPT-OSS 仍排除在外。
 - **修復 Codex 切換模型錯誤**：修正模型目錄中的 `use_responses_lite = false`，徹底解決切換到 Antigravity 模型時 Codex 前端帳號驗證崩潰的問題。
 - **對話歷程壓縮（Compaction）**：完整實作 `/v1/responses/compact` 端點，符合 OpenAI Compact API 規格，對話過長時能自動完成摘要總結。
 - **一鍵安裝與安全復原**：`setup` 自動備份並設定 `~/.codex/config.toml`；隨時可透過 `disconnect` 指令完全還原。

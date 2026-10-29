@@ -1,6 +1,6 @@
 {
   "name": "codex-bridge-antigravity",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A small local Codex Responses bridge for the official Antigravity CLI.",
   "type": "module",

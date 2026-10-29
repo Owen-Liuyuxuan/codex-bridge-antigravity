@@ -43,7 +43,7 @@ This allows you to seamlessly switch between GPT and Gemini models directly from
 ## Key Features
 
 - **Zero-Disruption Coexistence**: GPT models continue working via official OpenAI endpoints without going through Antigravity.
-- **Dynamic Model Catalog**: Automatically synchronizes models from `agy models` (e.g. Gemini 3.8 Flash, Gemini 3.8 Pro).
+- **Dynamic Model Catalog**: Synchronizes Gemini models reported by `agy models`. This fork keeps Gemini 3.8 Flash and newer, and Gemini 4 Argon (`gemini-4-argon-low`, `medium`, `high`). Claude and GPT-OSS ids stay excluded.
 - **Codex Switcher Compatibility**: Configured with `use_responses_lite = false` to eliminate upstream account validation failures when switching models in Codex.
 - **Compaction & History Support**: Full `/v1/responses/compact` handler adhering to OpenAI Compact specifications, enabling seamless automatic conversation compaction.
 - **Single-Command Setup & Rollback**: Safely patches `~/.codex/config.toml` with backup, and provides one-command rollback via `disconnect`.
@@ -99,7 +99,7 @@ curl http://127.0.0.1:17842/v1/models
 # Direct response test
 curl http://127.0.0.1:17842/v1/responses \
   -H 'content-type: application/json' \
-  -d '{"model":"antigravity/gemini-3.8-flash-low","input":"Reply with exactly AGY_OK"}'
+  -d '{"model":"antigravity/gemini-4-argon-low","input":"Reply with exactly AGY_OK"}'
 ```
 
 ### 3. Integrate with Codex
@@ -110,7 +110,7 @@ Install the bridge into your local Codex configuration:
 node src/cli.mjs setup --cwd "$PWD" --replace-codex-route
 ```
 
-Restart your Codex Desktop application or restart the Codex CLI. You will now see `Gemini 3.8 Flash ...` models alongside native GPT models in the model dropdown.
+Restart your Codex Desktop application or restart the Codex CLI. You will now see `Gemini 4 Argon ...` and `Gemini 3.8 Flash ...` models alongside native GPT models in the model dropdown.
 
 ### 4. Disconnect & Restore
 

@@ -78,14 +78,23 @@ function dedupeModels(models) {
   });
 }
 
+/**
+ * Keep Gemini families this fork is prepared to route through `agy`.
+ *
+ * Flash stays on the upstream rule: 3.8 and newer. Argon is a separate id
+ * family (`gemini-4-argon-low|medium|high`) and is allowed from major version 4.
+ * Claude and GPT-OSS ids advertised by `agy models` stay excluded.
+ */
 export function isAllowedAgyModel(modelOrId) {
   const rawId = typeof modelOrId === "string" ? modelOrId : modelOrId?.id;
   if (typeof rawId !== "string") return false;
   const id = agyModelId(rawId);
-  const match = id.match(/^gemini-(\d+)(?:\.(\d+))?-flash(?:-(high|medium|low))?$/i);
+  const match = id.match(/^gemini-(\d+)(?:\.(\d+))?-(flash|argon)(?:-(high|medium|low))?$/i);
   if (!match) return false;
   const major = parseInt(match[1], 10);
   const minor = match[2] ? parseInt(match[2], 10) : 0;
+  const family = match[3].toLowerCase();
+  if (family === "argon") return major >= 4;
   if (major > 3) return true;
   if (major === 3 && minor >= 8) return true;
   return false;
