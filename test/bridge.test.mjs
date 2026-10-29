@@ -237,6 +237,52 @@ test("expandPreviousResponse preserves previous_response_id for native-to-native
   assert.equal(expandedSwitched.input[0].content[0].text, "agy answer");
 });
 
+test("pre-output agy failure is returned as a completed message", async () => {
+  const agyDir = mkdtempSync(join(tmpdir(), "codex-bridge-agy-quota-"));
+  const agyPath = join(agyDir, "agy");
+  writeFileSync(agyPath, `#!/usr/bin/env node
+process.stdin.once("data", () => {
+  const line = {
+    event: "result",
+    result: {
+      status: "ERROR",
+      error: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 20m.",
+    },
+  };
+  process.stdout.write(JSON.stringify(line) + "\\n", () => process.exit(0));
+});
+`);
+  chmodSync(agyPath, 0o700);
+  const config = {
+    host: "127.0.0.1",
+    port: 0,
+    agyPath,
+    cwd: process.cwd(),
+    mode: "plan",
+    requestTimeoutSec: 5,
+    nativeBaseUrl: "http://127.0.0.1:9/v1",
+  };
+  const bridge = createBridgeServer(config, [{ id: "gemini-4-argon-medium", displayName: "Gemini 4 Argon (Medium)" }]);
+  await listenBridge(bridge, config);
+  try {
+    const response = await fetch(`http://127.0.0.1:${bridge.address().port}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "antigravity/gemini-4-argon-medium",
+        input: "hello",
+      }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.status, "completed");
+    assert.match(body.output_text, /Individual quota reached/);
+  } finally {
+    await new Promise(resolve => bridge.close(resolve));
+    rmSync(agyDir, { recursive: true, force: true });
+  }
+});
+
 test("routes each WebSocket request by model and keeps the client connection alive", async () => {
   const agyDir = mkdtempSync(join(tmpdir(), "codex-bridge-agy-"));
   const agyPath = join(agyDir, "agy");

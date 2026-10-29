@@ -264,57 +264,70 @@ async function runAgyResponse({ config, models, payload, conversations, response
   }, sequence);
 
   let sentDelta = false;
-  const result = await runAgyPrompt({
-    config,
-    selected,
-    payload: effectivePayload,
-    prompt,
-    mode: config.mode,
-    effort: effortForAgy(selected.agy, effectivePayload.reasoning?.effort),
-    conversationId: previous,
-    signal,
-    onEvent: event => {
-      const delta = event.kind === "step" && typeof event.step.text_delta === "string"
-        ? event.step.text_delta
-        : "";
-      if (!delta) return;
-      sentDelta = true;
+  const finish = (finalText, result) => {
+    if (!sentDelta && finalText) {
       emit("response.output_text.delta", {
         item_id: itemId,
         output_index: 0,
         content_index: 0,
-        delta,
+        delta: finalText,
       }, sequence);
-    },
-  });
-  if (result.conversation_id) conversations.set(responseId, result.conversation_id);
-  const finalText = result.response || "";
-  if (!sentDelta && finalText) {
-    emit("response.output_text.delta", {
+    }
+    emit("response.output_text.done", {
       item_id: itemId,
       output_index: 0,
       content_index: 0,
-      delta: finalText,
+      text: finalText,
     }, sequence);
+    emit("response.content_part.done", {
+      item_id: itemId,
+      output_index: 0,
+      content_index: 0,
+      part: { type: "output_text", text: finalText, annotations: [] },
+    }, sequence);
+    const completed = responseBody({ id: responseId, model: selected.route, text: finalText, result });
+    completed.output[0].id = itemId;
+    emit("response.output_item.done", { output_index: 0, item: completed.output[0] }, sequence);
+    emit("response.completed", { response: completed }, sequence);
+    rememberResponse(responseStates, effectivePayload, completed);
+    return { responseId, response: completed, result };
+  };
+
+  let result;
+  try {
+    result = await runAgyPrompt({
+      config,
+      selected,
+      payload: effectivePayload,
+      prompt,
+      mode: config.mode,
+      effort: effortForAgy(selected.agy, effectivePayload.reasoning?.effort),
+      conversationId: previous,
+      signal,
+      onEvent: event => {
+        const delta = event.kind === "step" && typeof event.step.text_delta === "string"
+          ? event.step.text_delta
+          : "";
+        if (!delta) return;
+        sentDelta = true;
+        emit("response.output_text.delta", {
+          item_id: itemId,
+          output_index: 0,
+          content_index: 0,
+          delta,
+        }, sequence);
+      },
+    });
+  } catch (error) {
+    // Codex treats response.failed after response.created as a dropped stream and
+    // retries. A quota or other pre-output agy failure must complete the turn so
+    // the Desktop client shows the provider message instead of reconnecting.
+    if (sentDelta) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    return finish(message);
   }
-  emit("response.output_text.done", {
-    item_id: itemId,
-    output_index: 0,
-    content_index: 0,
-    text: finalText,
-  }, sequence);
-  emit("response.content_part.done", {
-    item_id: itemId,
-    output_index: 0,
-    content_index: 0,
-    part: { type: "output_text", text: finalText, annotations: [] },
-  }, sequence);
-  const completed = responseBody({ id: responseId, model: selected.route, text: finalText, result });
-  completed.output[0].id = itemId;
-  emit("response.output_item.done", { output_index: 0, item: completed.output[0] }, sequence);
-  emit("response.completed", { response: completed }, sequence);
-  rememberResponse(responseStates, effectivePayload, completed);
-  return { responseId, response: completed, result };
+  if (result.conversation_id) conversations.set(responseId, result.conversation_id);
+  return finish(result.response || "", result);
 }
 
 async function runAgyCompaction({ config, models, payload, conversations, responseStates, signal }) {
