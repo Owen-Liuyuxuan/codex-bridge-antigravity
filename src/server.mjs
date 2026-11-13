@@ -173,6 +173,8 @@ function modelCatalogRows(models) {
 }
 
 function effortFromId(id) {
+  if (/(?:^|-)xhigh$/.test(id)) return "xhigh";
+  if (id === "gemini-pro-orchestrator-g1-pro") return "medium";
   if (/(?:^|-)low$/.test(id)) return "low";
   if (/(?:^|-)medium$/.test(id)) return "medium";
   return "high";
@@ -184,7 +186,8 @@ function effortFromId(id) {
  * When the id has a suffix, omit `--effort` and let the id win.
  */
 export function effortForAgy(modelId, requested) {
-  if (typeof modelId === "string" && /(?:^|-)(?:low|medium|high)$/.test(modelId)) return undefined;
+  if (modelId === "gemini-pro-orchestrator-g1-pro") return undefined;
+  if (typeof modelId === "string" && /(?:^|-)(?:low|medium|high|xhigh)$/.test(modelId)) return undefined;
   return requested;
 }
 

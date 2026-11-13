@@ -99,9 +99,11 @@ test("model id effort wins over the global Codex reasoning effort", () => {
   assert.equal(effortForAgy("gemini-4-argon-medium", "high"), undefined);
   assert.equal(effortForAgy("gemini-3.8-flash-high", "low"), undefined);
   assert.equal(effortForAgy("gemini-4-argon", "medium"), "medium");
+  assert.equal(effortForAgy("gemini-4-hydrogen-xhigh", "medium"), undefined);
+  assert.equal(effortForAgy("gemini-pro-orchestrator-g1-pro", "high"), undefined);
 });
 
-test("filters models to Gemini 3.8 Flash and newer, plus Gemini 4 Argon", () => {
+test("filters models to supported Flash, Argon, Hydrogen and the advertised orchestrator", () => {
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-high"), true);
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-medium"), true);
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-low"), true);
@@ -110,6 +112,12 @@ test("filters models to Gemini 3.8 Flash and newer, plus Gemini 4 Argon", () => 
   assert.equal(isAllowedAgyModel("gemini-4-argon-high"), true);
   assert.equal(isAllowedAgyModel("gemini-4-argon-medium"), true);
   assert.equal(isAllowedAgyModel("gemini-4-argon-low"), true);
+  for (const effort of ["low", "medium", "high", "xhigh"]) {
+    assert.equal(isAllowedAgyModel(`gemini-4-hydrogen-${effort}`), true);
+  }
+  assert.equal(isAllowedAgyModel("gemini-pro-orchestrator-g1-pro"), true);
+  assert.equal(isAllowedAgyModel("gemini-pro-orchestrator-unknown"), false);
+  assert.equal(isAllowedAgyModel("gemini-3-hydrogen-high"), false);
   assert.equal(isAllowedAgyModel("antigravity/gemini-3.8-flash-high"), true);
   assert.equal(isAllowedAgyModel("antigravity/gemini-4-argon-medium"), true);
   assert.equal(isAllowedAgyModel({ id: "antigravity/gemini-3.8-flash-low" }), true);
@@ -160,6 +168,19 @@ test("adds Antigravity routes to a Codex catalog", () => {
   assert.equal(model.context_window, 1_000_000);
   assert.equal(model.max_context_window, 1_000_000);
   assert.equal(model.auto_compact_token_limit, 800_000);
+});
+
+test("catalog preserves Hydrogen XHigh and orchestrator auto-managed effort", () => {
+  const catalog = buildCodexCatalog([
+    { id: "gemini-4-hydrogen-xhigh", displayName: "Gemini 4 Hydrogen (XHigh)" },
+    { id: "gemini-pro-orchestrator-g1-pro", displayName: "Orchestrator (Argon)" },
+  ]);
+  const hydrogen = catalog.models.find(model => model.slug === "antigravity/gemini-4-hydrogen-xhigh");
+  assert.equal(hydrogen.default_reasoning_level, "xhigh");
+  assert.deepEqual(hydrogen.supported_reasoning_levels.map(level => level.effort), ["xhigh"]);
+  const orchestrator = catalog.models.find(model => model.slug === "antigravity/gemini-pro-orchestrator-g1-pro");
+  assert.ok(orchestrator);
+  assert.equal(effortForAgy("gemini-pro-orchestrator-g1-pro", orchestrator.default_reasoning_level), undefined);
 });
 
 test("extracts image paths and metadata in buildAgyPrompt", () => {

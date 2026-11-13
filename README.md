@@ -43,7 +43,7 @@ This allows you to seamlessly switch between GPT and Gemini models directly from
 ## Key Features
 
 - **Zero-Disruption Coexistence**: GPT models continue working via official OpenAI endpoints without going through Antigravity.
-- **Dynamic Model Catalog**: Synchronizes Gemini models reported by `agy models`. This fork keeps Gemini 3.8 Flash and newer, and Gemini 4 Argon (`gemini-4-argon-low`, `medium`, `high`). Claude and GPT-OSS ids stay excluded.
+- **Dynamic Model Catalog**: Synchronizes account-advertised Gemini 3.8+ Flash, Gemini 4+ Argon and Hydrogen (including Hydrogen XHigh), plus the exact `gemini-pro-orchestrator-g1-pro` entry. Claude and GPT-OSS ids stay excluded. Model-id effort takes precedence over Codex's global effort; orchestrator effort is left to AGY.
 - **Codex Switcher Compatibility**: Configured with `use_responses_lite = false` to eliminate upstream account validation failures when switching models in Codex.
 - **Compaction & History Support**: Full `/v1/responses/compact` handler adhering to OpenAI Compact specifications, enabling seamless automatic conversation compaction.
 - **Single-Command Setup & Rollback**: Safely patches `~/.codex/config.toml` with backup, and provides one-command rollback via `disconnect`.
@@ -110,7 +110,14 @@ Install the bridge into your local Codex configuration:
 node src/cli.mjs setup --cwd "$PWD" --replace-codex-route
 ```
 
-Restart your Codex Desktop application or restart the Codex CLI. You will now see `Gemini 4 Argon ...` and `Gemini 3.8 Flash ...` models alongside native GPT models in the model dropdown.
+Restart your Codex Desktop application or restart the Codex CLI. You will see Hydrogen, Argon, Flash and the advertised Orchestrator alongside native GPT models in the model dropdown.
+
+On the verified Google AI Pro account (2026-11-13), Hydrogen shares the regular
+Gemini weekly/five-hour quota with Flash/Pro. `Orchestrator (Argon)` shares
+Argon's dedicated weekly quota, so it cannot bypass an exhausted Argon limit.
+Adding it to the picker does not automatically delegate work or change the
+default model. Use `antigravity/gemini-pro-orchestrator-g1-pro` explicitly when
+that quota is available. Hydrogen XHigh uses `antigravity/gemini-4-hydrogen-xhigh`.
 
 ### 4. Disconnect & Restore
 
