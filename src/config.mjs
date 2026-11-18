@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { DEFAULT_NATIVE_BASE_URL } from "./native.mjs";
@@ -29,9 +30,24 @@ export function integrationStatePath() {
   return join(appHome(), "codex", "integration.json");
 }
 
-export function codexConfigPath() {
+export function codexHome() {
   const configured = process.env.CODEX_HOME?.trim();
-  return join(resolve(expandPath(configured || "~/.codex")), "config.toml");
+  return resolve(expandPath(configured || "~/.codex"));
+}
+
+export function codexConfigPath() {
+  return join(codexHome(), "config.toml");
+}
+
+export function atomicWrite(path, data) {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.tmp-${randomUUID()}`;
+  try {
+    writeFileSync(temporary, data, { mode: 0o600, flag: "wx" });
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }
 
 export function defaultConfig(overrides = {}) {
@@ -64,8 +80,7 @@ export function loadConfig(overrides = {}) {
 
 export function saveConfig(config) {
   const path = configPath();
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);
   return path;
 }
 

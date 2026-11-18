@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { appHome } from "./config.mjs";
+import { appHome, codexHome } from "./config.mjs";
 
 export const SERVICE_LABEL = "io.github.codex-bridge-antigravity.daemon";
 
@@ -54,6 +54,7 @@ export function buildServicePlist(config) {
     "--agy-path", config.agyPath,
   ];
   const argumentXml = programArguments.map(plistString).join("\n        ");
+  const pinnedCatalog = process.env.CODEX_MODEL_CATALOG?.trim();
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -70,6 +71,12 @@ export function buildServicePlist(config) {
   <dict>
     <key>HOME</key>
     ${plistString(homedir())}
+    <key>CODEX_HOME</key>
+    ${plistString(codexHome())}
+    <key>CODEX_ANTIGRAVITY_HOME</key>
+    ${plistString(appHome())}
+    ${pinnedCatalog ? `<key>CODEX_MODEL_CATALOG</key>
+    ${plistString(pinnedCatalog)}` : ""}
     <key>PATH</key>
     ${plistString(`${dirname(process.execPath)}:/usr/local/bin:/opt/homebrew/bin:${homedir()}/.local/bin:/usr/bin:/bin`)}
   </dict>

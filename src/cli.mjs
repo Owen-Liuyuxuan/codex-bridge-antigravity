@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, unwatchFile, watchFile } from "node:fs";
 import { dirname, join } from "node:path";
 import { agyVersion, stopActiveAgyProcesses } from "./agy.mjs";
-import { appHome, catalogPath, codexConfigPath, integrationStatePath, loadConfig, resolveAgyExecutable, resolveCwd, saveConfig } from "./config.mjs";
-import { buildCodexCatalog, discoverAgyModels } from "./models.mjs";
+import { appHome, atomicWrite, catalogPath, codexConfigPath, integrationStatePath, loadConfig, resolveAgyExecutable, resolveCwd, saveConfig } from "./config.mjs";
+import { cachedAgyModels, refreshModelCatalog } from "./catalog.mjs";
+import { discoverAgyModels } from "./models.mjs";
 import { createBridgeServer, listenBridge } from "./server.mjs";
 import { installService, uninstallService } from "./service.mjs";
 
@@ -38,21 +39,11 @@ async function freshConfig(options) {
     ...(options.cwd ? { cwd: resolveCwd(options.cwd) } : {}),
     ...(options.port ? { port: numberOption(options.port, existing.port) } : {}),
     ...(options.mode && ["plan", "accept-edits"].includes(options.mode) ? { mode: options.mode } : {}),
+    ...(typeof options.codexBinary === "string" ? { codexBinary: options.codexBinary } : {}),
+    ...(options.catalogRefreshSec ? { catalogRefreshSec: numberOption(options.catalogRefreshSec, existing.catalogRefreshSec) } : {}),
     agyPath: resolveAgyExecutable(options.agyPath || existing.agyPath),
   };
   return config;
-}
-
-async function refreshModels(config) {
-  try {
-    const models = await discoverAgyModels(config.agyPath);
-    const updated = { ...config, models, lastModelsRefresh: new Date().toISOString() };
-    saveConfig(updated);
-    return updated;
-  } catch (error) {
-    if (config.models?.length) return config;
-    throw error;
-  }
 }
 
 function topLevelEnd(lines) {
@@ -140,17 +131,8 @@ function ensureRouterProvider(text, provider, route) {
   return patched;
 }
 
-function atomicWrite(path, data) {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.tmp-${process.pid}`;
-  writeFileSync(temporary, data, { mode: 0o600 });
-  writeFileSync(path, readFileSync(temporary), { mode: 0o600 });
-  unlinkSync(temporary);
-}
-
 async function setup(options) {
-  let config = await freshConfig(options);
-  config = await refreshModels(config);
+  const config = await freshConfig(options);
   const route = `http://${config.host}:${config.port}/v1`;
   const configPath = codexConfigPath();
   const configExists = existsSync(configPath);
@@ -166,6 +148,8 @@ async function setup(options) {
   if (routeInUse && routeInUse !== route && options.replaceCodexRoute !== true) {
     throw new Error(`Codex already routes through ${routeInUse}. Use --replace-codex-route to switch it reversibly.`);
   }
+  const { models } = await refreshModelCatalog(config);
+  if (!models.length) throw new Error("No Antigravity models are available for setup");
 
   const backupPath = existingState?.backupPath || join(appHome(), "codex", "config.toml.before-antigravity");
   if (!existingState && configExists) {
@@ -173,9 +157,7 @@ async function setup(options) {
     copyFileSync(configPath, backupPath);
     chmodSync(backupPath, 0o600);
   }
-  const managedCatalog = buildCodexCatalog(config.models);
   const managedCatalogPath = catalogPath();
-  atomicWrite(managedCatalogPath, `${JSON.stringify(managedCatalog, null, 2)}\n`);
   let patched = replaceTopLevelAssignment(currentText, "openai_base_url", route);
   patched = replaceTopLevelAssignment(patched, "model_catalog_json", managedCatalogPath);
   // Codex chooses the Responses transport per provider, not per catalog row. The local router
@@ -193,10 +175,10 @@ async function setup(options) {
     installedAt: new Date().toISOString(),
   };
   atomicWrite(statePath, `${JSON.stringify(state, null, 2)}\n`);
-  saveConfig(config);
+  saveConfig({ ...config, models });
   const service = installService(config);
   console.log(`Codex route installed: ${route}`);
-  console.log(`Models installed: ${config.models.length}`);
+  console.log(`Antigravity models installed: ${models.length}`);
   if (service.installed) console.log(`Background service installed: ${service.plistPath}`);
   console.log(`Codex restart required. To restore the previous route: codex-bridge-antigravity disconnect`);
 }
@@ -247,29 +229,47 @@ async function doctor(options) {
 }
 
 async function refreshCatalog(options) {
-  let config = await freshConfig(options);
-  config = await refreshModels(config);
-  const managedCatalog = buildCodexCatalog(config.models);
-  const managedCatalogPath = catalogPath();
-  atomicWrite(managedCatalogPath, `${JSON.stringify(managedCatalog, null, 2)}\n`);
-  console.log(`Updated model catalog: ${managedCatalogPath}`);
-  console.log(`Models in catalog: ${config.models.length}`);
+  const config = await freshConfig(options);
+  const { catalog, changed, refreshed } = await refreshModelCatalog(config);
+  console.log(`Model catalog ${changed ? "updated" : "unchanged"}: ${catalogPath()} (${catalog.models.length} models)`);
+  if (!refreshed) process.exitCode = 1;
 }
 
 async function serve(options) {
-  let config = await freshConfig(options);
-  config = await refreshModels(config);
-  try {
-    const managedCatalog = buildCodexCatalog(config.models);
-    atomicWrite(catalogPath(), `${JSON.stringify(managedCatalog, null, 2)}\n`);
-  } catch (err) {
-    console.error(`Warning: failed to update catalog cache: ${err.message}`);
-  }
-  const server = createBridgeServer(config, config.models);
+  const config = await freshConfig(options);
+  const models = [...(cachedAgyModels() || config.models)];
+  const server = createBridgeServer(config, models);
   await listenBridge(server, config);
   console.log(`codex-bridge-antigravity listening on http://${config.host}:${config.port}/v1`);
   console.log(`AGY: ${config.agyPath} | cwd: ${config.cwd} | mode: ${config.mode}`);
+  const path = catalogPath();
+  const updateRoutes = () => {
+    const published = cachedAgyModels();
+    if (published) models.splice(0, models.length, ...published);
+  };
+  watchFile(path, { interval: 1_000, persistent: false }, updateRoutes);
+  updateRoutes();
+
+  const refreshDelay = Math.min(numberOption(config.catalogRefreshSec, 900) * 1_000, 2 ** 31 - 1);
+  let timer;
+  let stopping = false;
+  const refresh = async () => {
+    try {
+      const { catalog, changed } = await refreshModelCatalog(config);
+      updateRoutes();
+      if (changed) console.log(`Updated model catalog (${catalog.models.length} models)`);
+    } catch (error) {
+      console.error(`Warning: failed to publish model catalog: ${error.message}`);
+    } finally {
+      if (!stopping) timer = setTimeout(refresh, refreshDelay).unref();
+    }
+  };
+  void refresh();
+
   const shutdown = () => {
+    stopping = true;
+    clearTimeout(timer);
+    unwatchFile(path, updateRoutes);
     stopActiveAgyProcesses();
     server.close(() => process.exit(0));
     // Open WebSocket clients otherwise keep server.close() from finishing, and

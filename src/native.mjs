@@ -72,7 +72,7 @@ export function nativeWebSocketUrl(config) {
   return url.toString();
 }
 
-export async function fetchNative({ config, req, endpoint, body, signal }) {
+export async function fetchNative({ config, req, endpoint, body, signal, redirect }) {
   requireNativeAuth(req);
   const incoming = new URL(req.url || "/", `http://${config.host}:${config.port}`);
   if (endpoint === "models" && !incoming.searchParams.has("client_version")) {
@@ -87,6 +87,7 @@ export async function fetchNative({ config, req, endpoint, body, signal }) {
     headers,
     ...(requestBody === undefined ? {} : { body: requestBody }),
     signal,
+    redirect,
   });
 }
 
