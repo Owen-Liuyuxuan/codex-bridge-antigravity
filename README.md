@@ -119,6 +119,40 @@ Adding it to the picker does not automatically delegate work or change the
 default model. Use `antigravity/gemini-pro-orchestrator-g1-pro` explicitly when
 that quota is available. Hydrogen XHigh uses `antigravity/gemini-4-hydrogen-xhigh`.
 
+### Model catalog refresh
+
+The running bridge checks both providers at startup and every 15 minutes.
+It gets native entries from the signed-in ChatGPT Codex catalog, preserving
+the upstream model metadata. It gets Antigravity entries from `agy models`
+and applies the bridge's supported-model filter. New versions in the supported
+Gemini families are picked up automatically. Adding a new family requires a
+change to that filter.
+
+Codex reads `model_catalog_json` on startup. With the bridge's custom provider,
+removing that setting falls back to Codex's bundled model list. The bridge
+therefore keeps the combined file, replaces it atomically when its contents
+change, and updates the running router from the published file. Restart Codex
+Desktop or the CLI to see a changed picker. A bridge restart is unnecessary
+for model-list changes.
+
+Native discovery uses the installed desktop Codex binary's version where
+detected, with `codex` on PATH as a fallback. An older binary may receive an
+older catalog. Pass `--codex-binary /path/to/codex` to `setup` to save an explicit
+choice, or to `serve` or `refresh-catalog` for that invocation. The request
+uses the current file-backed ChatGPT sign-in in `$CODEX_HOME/auth.json`
+(default `~/.codex/auth.json`) with the standard ChatGPT Codex endpoint.
+Codex continues to manage credential renewal. For a custom native backend or
+credential store, set `CODEX_MODEL_CATALOG` in the bridge environment to point
+to an explicit catalog file.
+
+If either source is unavailable or returns an unusable list, the bridge keeps
+that provider's last usable entries and applies updates from the other. On
+the first run it can seed native entries from an existing Codex cache.
+Run `node src/cli.mjs refresh-catalog` for an immediate refresh. An existing
+bridge service runs the background refresh after restarting onto this version.
+Use `--catalog-refresh-sec` with `setup` or `serve` to choose a different interval.
+See the [Codex configuration reference](https://developers.openai.com/codex/config-reference/).
+
 ### 4. Disconnect & Restore
 
 To restore your pre-setup Codex configuration at any time:

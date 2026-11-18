@@ -1,6 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { spawn } from "node:child_process";
 
 export const MODEL_PREFIX = "antigravity/";
@@ -102,9 +99,9 @@ export function isAllowedAgyModel(modelOrId) {
   return false;
 }
 
-export async function discoverAgyModels(agyPath) {
+export async function discoverAgyModels(agyPath, { allowFallback = true } = {}) {
   const parsed = parseAgyModels(await runAgyModels(agyPath));
-  const available = parsed.length > 0 ? parsed : FALLBACK_AGY_MODELS;
+  const available = parsed.length || !allowFallback ? parsed : FALLBACK_AGY_MODELS;
   return available.filter(isAllowedAgyModel);
 }
 
@@ -124,25 +121,6 @@ function effortForModel(id) {
   return "high";
 }
 
-function nativeCatalog() {
-  const candidates = [
-    process.env.CODEX_MODEL_CATALOG?.trim(),
-    join(homedir(), ".codex", "opencodex-catalog.json"),
-    join(homedir(), ".codex", "models_cache.json"),
-    join(homedir(), ".codex-freebuff-web", "codex", "model-catalog.json"),
-  ].filter(Boolean);
-  for (const path of candidates) {
-    if (!existsSync(path)) continue;
-    try {
-      const value = JSON.parse(readFileSync(path, "utf8"));
-      if (value && Array.isArray(value.models)) return value;
-    } catch {
-      // A stale optional cache should not prevent the bridge from starting.
-    }
-  }
-  return { models: [] };
-}
-
 function modelSlug(value) {
   return value && typeof value === "object" && !Array.isArray(value) && typeof value.slug === "string"
     ? value.slug
@@ -152,10 +130,7 @@ function modelSlug(value) {
 function nativeTemplate(catalog) {
   return catalog.models.find(model => {
     const slug = modelSlug(model);
-    return slug && !slug.startsWith(MODEL_PREFIX)
-      && !slug.startsWith("freebuff/")
-      && !slug.startsWith("gemini-web/")
-      && Array.isArray(model.supported_reasoning_levels);
+    return slug && Array.isArray(model.supported_reasoning_levels);
   });
 }
 
@@ -201,17 +176,21 @@ function buildModel(template, model) {
   return result;
 }
 
-export function buildCodexCatalog(models) {
-  const source = nativeCatalog();
-  const template = nativeTemplate(source);
-  const preserved = source.models.filter(model => {
+export function nativeCatalogRows(models) {
+  const seen = new Set();
+  return models.filter(model => {
     const slug = modelSlug(model);
-    return slug && !slug.startsWith(MODEL_PREFIX)
-      && !slug.startsWith("freebuff/")
-      && !slug.startsWith("gemini-web/");
+    if (!slug || isAntigravityModel(slug) || isLegacyBridgeModel(slug) || seen.has(slug)) return false;
+    seen.add(slug);
+    return true;
   });
+}
+
+export function buildCodexCatalog(models, source = { models: [] }) {
+  const preserved = nativeCatalogRows(source.models);
+  const template = nativeTemplate({ models: preserved });
   return {
-    ...structuredClone(source),
+    ...source,
     models: [...preserved, ...models.map(model => buildModel(template, model))],
   };
 }
