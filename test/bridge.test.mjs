@@ -101,9 +101,13 @@ test("model id effort wins over the global Codex reasoning effort", () => {
   assert.equal(effortForAgy("gemini-4-argon", "medium"), "medium");
   assert.equal(effortForAgy("gemini-4-hydrogen-xhigh", "medium"), undefined);
   assert.equal(effortForAgy("gemini-pro-orchestrator-g1-pro", "high"), undefined);
+  assert.equal(effortForAgy("gemini-4-neon-xhigh", "medium"), undefined);
+  assert.equal(effortForAgy("gemini-pro-orchestrator-neon", "high"), undefined);
+  assert.equal(effortForAgy("gemini-5.1-example-family-max", "medium"), undefined);
+  assert.equal(effortForAgy("gemini-pro-orchestrator-example-family", "high"), undefined);
 });
 
-test("filters models to supported Flash, Argon, Hydrogen and the advertised orchestrator", () => {
+test("admits newly advertised Gemini families and orchestrators by ID format", () => {
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-high"), true);
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-medium"), true);
   assert.equal(isAllowedAgyModel("gemini-3.8-flash-low"), true);
@@ -114,9 +118,14 @@ test("filters models to supported Flash, Argon, Hydrogen and the advertised orch
   assert.equal(isAllowedAgyModel("gemini-4-argon-low"), true);
   for (const effort of ["low", "medium", "high", "xhigh"]) {
     assert.equal(isAllowedAgyModel(`gemini-4-hydrogen-${effort}`), true);
+    assert.equal(isAllowedAgyModel(`gemini-4-neon-${effort}`), true);
   }
   assert.equal(isAllowedAgyModel("gemini-pro-orchestrator-g1-pro"), true);
-  assert.equal(isAllowedAgyModel("gemini-pro-orchestrator-unknown"), false);
+  assert.equal(isAllowedAgyModel("gemini-pro-orchestrator-neon"), true);
+  assert.equal(isAllowedAgyModel("gemini-pro-orchestrator-example-family"), true);
+  assert.equal(isAllowedAgyModel("gemini-5.1-example-family-max"), true);
+  assert.equal(isAllowedAgyModel("gemini-pro-orchestrator-"), false);
+  assert.equal(isAllowedAgyModel("gemini-4-"), false);
   assert.equal(isAllowedAgyModel("gemini-3-hydrogen-high"), false);
   assert.equal(isAllowedAgyModel("antigravity/gemini-3.8-flash-high"), true);
   assert.equal(isAllowedAgyModel("antigravity/gemini-4-argon-medium"), true);
@@ -126,6 +135,7 @@ test("filters models to supported Flash, Argon, Hydrogen and the advertised orch
   assert.equal(isAllowedAgyModel("gemini-3.6-flash-low"), false);
   assert.equal(isAllowedAgyModel("gemini-3.1-pro-high"), false);
   assert.equal(isAllowedAgyModel("gemini-3-argon-high"), false);
+  assert.equal(isAllowedAgyModel("gemini-3-neon-high"), false);
   assert.equal(isAllowedAgyModel("claude-sonnet-4-6"), false);
   assert.equal(isAllowedAgyModel("claude-opus-5-5-high"), false);
   assert.equal(isAllowedAgyModel("gpt-oss-120b-medium"), false);
@@ -170,17 +180,21 @@ test("adds Antigravity routes to a Codex catalog", () => {
   assert.equal(model.auto_compact_token_limit, 800_000);
 });
 
-test("catalog preserves Hydrogen XHigh and orchestrator auto-managed effort", () => {
+test("catalog preserves XHigh variants and orchestrator auto-managed effort", () => {
   const catalog = buildCodexCatalog([
     { id: "gemini-4-hydrogen-xhigh", displayName: "Gemini 4 Hydrogen (XHigh)" },
+    { id: "gemini-4-neon-xhigh", displayName: "Gemini 4 Neon (XHigh)" },
     { id: "gemini-pro-orchestrator-g1-pro", displayName: "Orchestrator (Argon)" },
+    { id: "gemini-pro-orchestrator-neon", displayName: "Orchestrator (Neon)" },
   ]);
-  const hydrogen = catalog.models.find(model => model.slug === "antigravity/gemini-4-hydrogen-xhigh");
-  assert.equal(hydrogen.default_reasoning_level, "xhigh");
-  assert.deepEqual(hydrogen.supported_reasoning_levels.map(level => level.effort), ["xhigh"]);
-  const orchestrator = catalog.models.find(model => model.slug === "antigravity/gemini-pro-orchestrator-g1-pro");
-  assert.ok(orchestrator);
-  assert.equal(effortForAgy("gemini-pro-orchestrator-g1-pro", orchestrator.default_reasoning_level), undefined);
+  for (const model of catalog.models.slice(0, 2)) {
+    assert.equal(model.default_reasoning_level, "xhigh");
+    assert.deepEqual(model.supported_reasoning_levels.map(level => level.effort), ["xhigh"]);
+  }
+  for (const model of catalog.models.slice(2)) {
+    assert.equal(model.default_reasoning_level, "medium");
+    assert.equal(effortForAgy(model.slug.replace("antigravity/", ""), model.default_reasoning_level), undefined);
+  }
 });
 
 test("extracts image paths and metadata in buildAgyPrompt", () => {

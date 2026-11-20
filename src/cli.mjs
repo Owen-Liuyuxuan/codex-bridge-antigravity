@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSyn
 import { dirname, join } from "node:path";
 import { agyVersion, stopActiveAgyProcesses } from "./agy.mjs";
 import { appHome, atomicWrite, catalogPath, codexConfigPath, integrationStatePath, loadConfig, resolveAgyExecutable, resolveCwd, saveConfig } from "./config.mjs";
-import { cachedAgyModels, refreshModelCatalog } from "./catalog.mjs";
+import { cachedAgyModels, hasUsableNativeCatalog, refreshModelCatalog } from "./catalog.mjs";
 import { discoverAgyModels } from "./models.mjs";
 import { createBridgeServer, listenBridge } from "./server.mjs";
 import { installService, uninstallService } from "./service.mjs";
@@ -148,7 +148,10 @@ async function setup(options) {
   if (routeInUse && routeInUse !== route && options.replaceCodexRoute !== true) {
     throw new Error(`Codex already routes through ${routeInUse}. Use --replace-codex-route to switch it reversibly.`);
   }
-  const { models } = await refreshModelCatalog(config);
+  const { catalog, models } = await refreshModelCatalog(config);
+  if (!hasUsableNativeCatalog(catalog)) {
+    throw new Error("No usable native Codex catalog is available for setup. Sign in to Codex with file-backed ChatGPT auth or set CODEX_MODEL_CATALOG to a complete Codex catalog.");
+  }
   if (!models.length) throw new Error("No Antigravity models are available for setup");
 
   const backupPath = existingState?.backupPath || join(appHome(), "codex", "config.toml.before-antigravity");
@@ -231,6 +234,7 @@ async function doctor(options) {
 async function refreshCatalog(options) {
   const config = await freshConfig(options);
   const { catalog, changed, refreshed } = await refreshModelCatalog(config);
+  if (!hasUsableNativeCatalog(catalog)) throw new Error("No usable native Codex catalog is available to publish");
   console.log(`Model catalog ${changed ? "updated" : "unchanged"}: ${catalogPath()} (${catalog.models.length} models)`);
   if (!refreshed) process.exitCode = 1;
 }
@@ -255,8 +259,8 @@ async function serve(options) {
   let stopping = false;
   const refresh = async () => {
     try {
-      const { catalog, changed } = await refreshModelCatalog(config);
-      updateRoutes();
+      const { catalog, changed, models: discovered } = await refreshModelCatalog({ ...config, models });
+      models.splice(0, models.length, ...(cachedAgyModels() ?? discovered));
       if (changed) console.log(`Updated model catalog (${catalog.models.length} models)`);
     } catch (error) {
       console.error(`Warning: failed to publish model catalog: ${error.message}`);

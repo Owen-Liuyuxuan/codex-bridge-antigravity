@@ -30,33 +30,38 @@ function readCatalog(path) {
   return {};
 }
 
-function seedNativeCatalog() {
-  const candidates = [
-    join(codexHome(), "opencodex-catalog.json"),
-    join(codexHome(), "models_cache.json"),
-    join(homedir(), ".codex-freebuff-web", "codex", "model-catalog.json"),
-  ];
-  for (const path of candidates) {
-    const { catalog } = readCatalog(path);
-    if (catalog && nativeCatalogRows(catalog.models).length) return catalog;
-  }
+export function hasUsableNativeCatalog(catalog) {
+  if (!Array.isArray(catalog?.models)) return false;
+  const rows = nativeCatalogRows(catalog.models);
+  return rows.length > 0 && rows.every(row =>
+    typeof row.display_name === "string" && typeof row.visibility === "string"
+    && Array.isArray(row.supported_reasoning_levels)
+  );
 }
 
-export function cachedAgyModels(catalog = readCatalog(catalogPath()).catalog) {
+function seedNativeCatalog() {
+  const { catalog } = readCatalog(join(codexHome(), "models_cache.json"));
+  return hasUsableNativeCatalog(catalog) ? catalog : undefined;
+}
+
+function agyModelsFromCatalog(catalog) {
   if (!catalog) return undefined;
-  const models = catalog.models
+  return catalog.models
     .filter(row => isAntigravityModel(row?.slug) && isAllowedAgyModel(row.slug)
       && typeof row.display_name === "string")
     .map(row => ({ id: agyModelId(row.slug), displayName: row.display_name }));
-  return models.length ? models : undefined;
+}
+
+export function cachedAgyModels() {
+  return agyModelsFromCatalog(readCatalog(catalogPath()).catalog);
 }
 
 async function fetchCodexCatalog(config) {
   const pinnedPath = process.env.CODEX_MODEL_CATALOG?.trim();
   if (pinnedPath) {
     const { catalog } = readCatalog(pinnedPath);
-    if (!catalog || !nativeCatalogRows(catalog.models).length) {
-      throw new Error("CODEX_MODEL_CATALOG does not contain any native Codex models");
+    if (!hasUsableNativeCatalog(catalog)) {
+      throw new Error("CODEX_MODEL_CATALOG does not contain usable native Codex models");
     }
     return catalog;
   }
@@ -99,10 +104,10 @@ async function fetchCodexCatalog(config) {
     throw new Error(`ChatGPT catalog returned HTTP ${response.status}`);
   }
   const catalog = await response.json();
-  if (!Array.isArray(catalog?.models) || !catalog.models.length || catalog.models.some(row =>
+  if (!hasUsableNativeCatalog(catalog) || catalog.models.some(row =>
     typeof row?.slug !== "string" || !row.slug || typeof row.display_name !== "string"
     || typeof row.visibility !== "string" || !Array.isArray(row.supported_reasoning_levels)
-  ) || !nativeCatalogRows(catalog.models).length) {
+  )) {
     throw new Error("ChatGPT returned an unusable model catalog");
   }
   return catalog;
@@ -111,10 +116,7 @@ async function fetchCodexCatalog(config) {
 export async function refreshModelCatalog(config, { fetchNativeCatalog = fetchCodexCatalog } = {}) {
   const [native, agy] = await Promise.allSettled([
     fetchNativeCatalog(config),
-    discoverAgyModels(config.agyPath, { allowFallback: false }).then(models => {
-      if (!models.length) throw new Error("agy models returned no supported entries");
-      return models;
-    }),
+    discoverAgyModels(config.agyPath, { allowFallback: false }),
   ]);
   for (const [provider, result] of [["Codex", native], ["Antigravity", agy]]) {
     if (result.status === "rejected") {
@@ -126,12 +128,14 @@ export async function refreshModelCatalog(config, { fetchNativeCatalog = fetchCo
   // can provide the fallback for a provider that failed during this run.
   const path = catalogPath();
   const previous = readCatalog(path);
-  const models = agy.status === "fulfilled" ? agy.value : cachedAgyModels(previous.catalog) || config.models;
-  const oldNative = previous.catalog && nativeCatalogRows(previous.catalog.models).length
+  const models = agy.status === "fulfilled" ? agy.value
+    : agyModelsFromCatalog(previous.catalog) ?? config.models.filter(isAllowedAgyModel);
+  const oldNative = hasUsableNativeCatalog(previous.catalog)
     ? previous.catalog : seedNativeCatalog();
-  const catalog = buildCodexCatalog(models, native.status === "fulfilled" ? native.value : oldNative);
+  const nativeSource = native.status === "fulfilled" ? native.value : oldNative;
+  const catalog = buildCodexCatalog(models, nativeSource);
   const text = `${JSON.stringify(catalog, null, 2)}\n`;
-  const changed = text !== previous.text;
+  const changed = Boolean(nativeSource) && text !== previous.text;
   if (changed) atomicWrite(path, text);
   return { catalog, models, changed, refreshed: native.status === "fulfilled" || agy.status === "fulfilled" };
 }

@@ -59,7 +59,7 @@ export function parseAgyModels(text) {
   for (const line of String(text).split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || /^model(s)?$/i.test(trimmed)) continue;
-    const match = trimmed.match(/^(\S+)\s+(.+?)\s*$/);
+    const match = trimmed.match(/^(\S+)(?:[ \t]*\t[ \t]*| {2,})(.+)$/);
     if (!match || !/^[A-Za-z0-9._-]+$/.test(match[1])) continue;
     models.push({ id: match[1], displayName: match[2] });
   }
@@ -75,33 +75,29 @@ function dedupeModels(models) {
   });
 }
 
-/**
- * Keep Gemini families this fork is prepared to route through `agy`.
- *
- * Flash stays on the upstream rule: 3.8 and newer. Argon is a separate id
- * family and, like Hydrogen, is allowed from major version 4. The exact
- * account-advertised orchestrator id is also supported; never invent aliases.
- * Claude and GPT-OSS ids advertised by `agy models` stay excluded.
- */
+export function isAgyOrchestrator(id) {
+  return typeof id === "string" && /^gemini-pro-orchestrator(?:-[a-z0-9]+)*$/i.test(id);
+}
+
+// Keep the existing Gemini 3 Flash floor. For Gemini 4+, the account's model
+// list supplies eligible IDs without a bridge-side list of family names.
 export function isAllowedAgyModel(modelOrId) {
   const rawId = typeof modelOrId === "string" ? modelOrId : modelOrId?.id;
   if (typeof rawId !== "string") return false;
   const id = agyModelId(rawId);
-  if (id === "gemini-pro-orchestrator-g1-pro") return true;
-  const match = id.match(/^gemini-(\d+)(?:\.(\d+))?-(flash|argon|hydrogen)(?:-(xhigh|high|medium|low))?$/i);
+  if (isAgyOrchestrator(id)) return true;
+  const match = id.match(/^gemini-(\d+)(?:\.(\d+))?-([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/i);
   if (!match) return false;
   const major = parseInt(match[1], 10);
   const minor = match[2] ? parseInt(match[2], 10) : 0;
   const family = match[3].toLowerCase();
-  if (family === "argon" || family === "hydrogen") return major >= 4;
-  if (major > 3) return true;
-  if (major === 3 && minor >= 8) return true;
-  return false;
+  return major >= 4 || (major === 3 && minor >= 8 && /^flash(?:-(?:low|medium|high|xhigh|max))?$/.test(family));
 }
 
 export async function discoverAgyModels(agyPath, { allowFallback = true } = {}) {
   const parsed = parseAgyModels(await runAgyModels(agyPath));
-  const available = parsed.length || !allowFallback ? parsed : FALLBACK_AGY_MODELS;
+  if (!parsed.length && !allowFallback) throw new Error("agy models returned no recognizable model rows");
+  const available = parsed.length ? parsed : FALLBACK_AGY_MODELS;
   return available.filter(isAllowedAgyModel);
 }
 
@@ -113,12 +109,12 @@ export function agyModelId(route) {
   return route.startsWith(MODEL_PREFIX) ? route.slice(MODEL_PREFIX.length) : route;
 }
 
-function effortForModel(id) {
-  if (/(?:^|-)xhigh$/.test(id)) return "xhigh";
-  if (id === "gemini-pro-orchestrator-g1-pro") return "medium";
-  if (/(?:^|-)low$/.test(id)) return "low";
-  if (/(?:^|-)medium$/.test(id)) return "medium";
-  return "high";
+export function effortFromAgyId(id) {
+  return typeof id === "string" ? /(?:^|-)(low|medium|high|xhigh|max)$/i.exec(id)?.[1].toLowerCase() : undefined;
+}
+
+export function effortForModel(id) {
+  return isAgyOrchestrator(id) ? "medium" : effortFromAgyId(id) ?? "high";
 }
 
 function modelSlug(value) {
