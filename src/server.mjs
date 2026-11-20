@@ -6,6 +6,9 @@ import {
   AGY_AUTO_COMPACT_TOKEN_LIMIT,
   AGY_CONTEXT_WINDOW,
   agyModelId,
+  effortForModel,
+  effortFromAgyId,
+  isAgyOrchestrator,
   isAntigravityModel,
   isLegacyBridgeModel,
   routeId,
@@ -160,8 +163,8 @@ function modelCatalogRows(models) {
     display_name: model.displayName,
     description: `Official Antigravity CLI model: ${model.displayName}`,
     supported_in_api: true,
-    supported_reasoning_levels: [{ effort: effortFromId(model.id), description: "Antigravity model effort" }],
-    default_reasoning_level: effortFromId(model.id),
+    supported_reasoning_levels: [{ effort: effortForModel(model.id), description: "Antigravity model effort" }],
+    default_reasoning_level: effortForModel(model.id),
     visibility: "list",
     input_modalities: ["text", "image"],
     context_window: AGY_CONTEXT_WINDOW,
@@ -172,22 +175,13 @@ function modelCatalogRows(models) {
   }));
 }
 
-function effortFromId(id) {
-  if (/(?:^|-)xhigh$/.test(id)) return "xhigh";
-  if (id === "gemini-pro-orchestrator-g1-pro") return "medium";
-  if (/(?:^|-)low$/.test(id)) return "low";
-  if (/(?:^|-)medium$/.test(id)) return "medium";
-  return "high";
-}
-
 /**
  * `agy` rejects `--model gemini-4-argon-low --effort medium`. Catalog ids already
  * encode effort, and Codex still sends the global `model_reasoning_effort`.
  * When the id has a suffix, omit `--effort` and let the id win.
  */
 export function effortForAgy(modelId, requested) {
-  if (modelId === "gemini-pro-orchestrator-g1-pro") return undefined;
-  if (typeof modelId === "string" && /(?:^|-)(?:low|medium|high|xhigh)$/.test(modelId)) return undefined;
+  if (isAgyOrchestrator(modelId) || effortFromAgyId(modelId)) return undefined;
   return requested;
 }
 

@@ -43,7 +43,7 @@ This allows you to seamlessly switch between GPT and Gemini models directly from
 ## Key Features
 
 - **Zero-Disruption Coexistence**: GPT models continue working via official OpenAI endpoints without going through Antigravity.
-- **Dynamic Model Catalog**: Synchronizes account-advertised Gemini 3.8+ Flash, Gemini 4+ Argon and Hydrogen (including Hydrogen XHigh), plus the exact `gemini-pro-orchestrator-g1-pro` entry. Claude and GPT-OSS ids stay excluded. Model-id effort takes precedence over Codex's global effort; orchestrator effort is left to AGY.
+- **Dynamic Model Catalog** lists account-advertised Gemini 3.8+ Flash, Gemini 4 and newer families, and Gemini Pro Orchestrators. Model IDs with an effort suffix take precedence over Codex's global effort. AGY manages orchestrator effort.
 - **Codex Switcher Compatibility**: Configured with `use_responses_lite = false` to eliminate upstream account validation failures when switching models in Codex.
 - **Compaction & History Support**: Full `/v1/responses/compact` handler adhering to OpenAI Compact specifications, enabling seamless automatic conversation compaction.
 - **Single-Command Setup & Rollback**: Safely patches `~/.codex/config.toml` with backup, and provides one-command rollback via `disconnect`.
@@ -110,7 +110,7 @@ Install the bridge into your local Codex configuration:
 node src/cli.mjs setup --cwd "$PWD" --replace-codex-route
 ```
 
-Restart your Codex Desktop application or restart the Codex CLI. You will see Hydrogen, Argon, Flash and the advertised Orchestrator alongside native GPT models in the model dropdown.
+Restart Codex Desktop or the Codex CLI to see the supported Antigravity models alongside native GPT models in the picker.
 
 On the verified Google AI Pro account (2026-11-13), Hydrogen shares the regular
 Gemini weekly/five-hour quota with Flash/Pro. `Orchestrator (Argon)` shares
@@ -124,9 +124,16 @@ that quota is available. Hydrogen XHigh uses `antigravity/gemini-4-hydrogen-xhig
 The running bridge checks both providers at startup and every 15 minutes.
 It gets native entries from the signed-in ChatGPT Codex catalog, preserving
 the upstream model metadata. It gets Antigravity entries from `agy models`
-and applies the bridge's supported-model filter. New versions in the supported
-Gemini families are picked up automatically. Adding a new family requires a
-change to that filter.
+and publishes the exact IDs for account-advertised Gemini 4 and newer models,
+Gemini Pro Orchestrators, and Gemini 3.8+ Flash. Future Gemini families matching
+these ID conventions appear automatically. Claude and GPT-OSS remain outside
+this policy.
+
+Each successful AGY listing replaces the previous Antigravity entries. If the
+account advertises only excluded models, the picker drops all Antigravity
+entries. If the command fails or its output contains no recognizable model rows,
+the bridge retains the last published entries. Supported older models stay
+visible for as long as the account advertises them.
 
 Codex reads `model_catalog_json` on startup. With the bridge's custom provider,
 removing that setting falls back to Codex's bundled model list. The bridge
@@ -141,16 +148,23 @@ older catalog. Pass `--codex-binary /path/to/codex` to `setup` to save an explic
 choice, or to `serve` or `refresh-catalog` for that invocation. The request
 uses the current file-backed ChatGPT sign-in in `$CODEX_HOME/auth.json`
 (default `~/.codex/auth.json`) with the standard ChatGPT Codex endpoint.
-Codex continues to manage credential renewal. For a custom native backend or
-credential store, set `CODEX_MODEL_CATALOG` in the bridge environment to point
-to an explicit catalog file.
+The successful response replaces the prior native entries, including removals
+and visibility changes. The list reflects the account and client version in
+the request. Codex continues to manage credential renewal. For a custom native
+backend or credential store, set `CODEX_MODEL_CATALOG` in the bridge environment
+to point to a complete Codex catalog file. The bridge re-reads that file during
+refresh.
 
 If either source is unavailable or returns an unusable list, the bridge keeps
-that provider's last usable entries and applies updates from the other. On
-the first run it can seed native entries from an existing Codex cache.
+that provider's last usable entries and applies updates from the other. On the
+first run it can seed native entries from `$CODEX_HOME/models_cache.json`.
+Without a usable native source or cache, `setup` exits before changing Codex
+configuration.
 Run `node src/cli.mjs refresh-catalog` for an immediate refresh. An existing
 bridge service runs the background refresh after restarting onto this version.
 Use `--catalog-refresh-sec` with `setup` or `serve` to choose a different interval.
+On macOS, `setup` configures a launch agent. On Linux, start `serve` in the
+foreground or configure a user service to keep it running.
 See the [Codex configuration reference](https://developers.openai.com/codex/config-reference/).
 
 ### 4. Disconnect & Restore
